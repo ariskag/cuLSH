@@ -16,6 +16,24 @@
 	along with cuLSH.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+/*
+cuLSH::SearchTables
+	This is the structure used to perform searching after indexing has been made.
+	The user must reset the structure by calling <reset>.
+	Afterwards, searching is performed by calling <search>.
+<reset>:
+	* void reset(HashTables* hashtables, int K, int T = 1);
+	hashtables: pointer to indexing structure containing projection parameters and buckets
+	K: # of nearest neighbors to be returned at searching
+	T: # of total probing bins to be examined for each query (T = 1 for classic LSH)
+<search>:
+	* bool search(const float* queries, const int Q, const float* dataset, FILE* debugStream = 0);
+	queries: [D x Q] matrix of queries
+	Q: # of query vectors
+	dataset: [D x N] dataset, must be the same that was used with indexing structure hashtables
+	debugStream: stream used to output debugging info
+*/
+
 #ifndef __cuLSH__SearchTables__
 #define __cuLSH__SearchTables__
 
@@ -24,32 +42,32 @@ namespace cuLSH {
 class SearchTables {
 	public:
 		typedef struct {
-			float buckets;
-			float collect;
-			float sort;
-			float unique;
-			float distances;
-			float knn;
+			float buckets;	// time elapsed to find queries' matching buckets
+			float collect;	// time elapsed to collect the candidates from queries' matching buckets
+			float sort;	// time elapsed to sort candidate indices
+			float unique;	// time elapsed to extract unique candidate incices
+			float distances;	// time elapsed to calculate distances
+			float knn;	// time elapsed to extract K nearest neighbors
 			void reset(void) { buckets = collect = sort = unique = distances = knn = 0.0; }
 			} timesStruct;
 	private:
 		int Q;	// # of queries
 		int L;	// # of tables
-		int K, T;	// searching parameters
-		HashTables *hashtables;	// indexing structure
-		timesStruct times;
+		int K, T;	// # of nearest neighbors, # of total probing bins
+		HashTables *hashtables;	// pointer to indexing structure
+		timesStruct times;	// time values recorded at searching
 		
-		int **queryBuckets; // L matrices of size [T x Q]
+		int **queryBuckets; // L matrices of size [T x Q], indices to queries' matching buckets
 		
-		int *knn_ids;
-		float *knn_distances;
+		int *knn_ids;	// [K x Q] indices to K nearest neighbors
+		float *knn_distances;	// [K x Q] distances of K nearest neighbors
 		
-		unsigned totalCandidates_unique;
-		unsigned totalCandidates_nonUnique;
+		unsigned totalCandidates_unique;	// total unique candidates for all queries
+		unsigned totalCandidates_nonUnique;	// total non-unique candidates for all queries
 		
 		// Memory management
-		bool allocateMemory(void);
-		void freeMemory(void);
+		bool allocateMemory(void);	// allocate memory for queryBuckets, knn_ids, knn_distances
+		void freeMemory(void); // free allocated memory
 	public:
 		// Constructor / Destructor
 		SearchTables(void);
@@ -60,8 +78,11 @@ class SearchTables {
 		
 		// Perform searching
 		bool search(const float* queries, const int Q, const float* dataset, FILE* debugStream = 0);
+		
 		// Get selectivity
 		float getSelectivity(void) { return ( (hashtables && hashtables->getN() && Q) ? ( (totalCandidates_unique / (float) (hashtables->getN()) / (float) Q) ) : 0 ); }
+		
+		// Get percentage of non-unique candidates
 		float getNonUniquePercentage(void) { return (totalCandidates_unique ? ((totalCandidates_nonUnique - totalCandidates_unique) / (float) totalCandidates_unique) : 0); }
 		
 		// Get objects
@@ -69,9 +90,11 @@ class SearchTables {
 		unsigned getTotalCandidates_unique(void) { return totalCandidates_unique; }
 		unsigned getTotalCandidates_nonUnique(void) { return totalCandidates_nonUnique; }
 		
+		// Get ids and distances of nearest neighbors
 		const int* getKnnIds(void) { return knn_ids; }
 		const float* getKnnDistances(void) { return knn_distances; }
 		
+		// Get searching times
 		void getTimes(timesStruct* times) {
 			times->buckets = this->times.buckets;
 			times->collect = this->times.collect;

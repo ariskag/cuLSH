@@ -22,6 +22,11 @@
 
 namespace cuLSH {
 //###########################################################################################################
+/*
+	Radix sort 2 matrices, concatenated by placing the 2nd matrix under the 1st
+	The permutation vector pointing to the matrices' rows is returned
+	Indices [0 .. rows1) of the permutation vector refer to the first matrix's rows, indices [rows1 .. rows1 + rows2) to the second matrix's rows
+*/
 void radixSortRows_2matrices(
 	ThrustUnsignedD& d_permutation,
 	const ThrustFloatD& d_matrix1,
@@ -38,7 +43,7 @@ void radixSortRows_2matrices(
 	d_permutation.resize(rows1+rows2);
 	thrust::sequence(d_permutation.begin(), d_permutation.end());
 	
-	if(debugStream) fprintf(debugStream, "%s\tRadix-sorting matrices' rows. Columns examined(%d..1): ", funcString, columns);
+	if(debugStream) fprintf(debugStream, "%s\tRadix sorting matrices' rows. Columns examined(%d..1): ", funcString, columns);
 	for(int col = columns-1; col>=0; col--) {
 		if(debugStream) fprintf(debugStream, "%d ", col + 1);
 		thrust::copy_n(d_matrix1.begin() + col*rows1, rows1, d_column.begin());
@@ -50,6 +55,11 @@ void radixSortRows_2matrices(
 //	cudaDeviceSynchronize();
 }
 //###########################################################################################################
+/*
+	Generate mulriprobe codes of queries, after projection is done (without flooring the results)
+	d_projectedQueries is [Q x M] at first, containing the (non-floored) result of the projection
+	In the end, d_projectedQueries is [Q*T x M], containing the (floored) multiprobe codes of the queries
+*/
 void createMultiprobingCodes(
 	ThrustFloatD& d_projectedQueries,
 	const int Q,
@@ -108,6 +118,9 @@ void createMultiprobingCodes(
 //	cudaDeviceSynchronize();
 }
 //###########################################################################################################
+/*
+	Find the buckets matching queries' codes
+*/
 void findMatchingBuckets(
 	int* queryBuckets,	// [T x Q]
 	const ThrustFloatD& d_projectedQueries,	// [Q x M]
@@ -151,6 +164,10 @@ void findMatchingBuckets(
 	thrust::copy(d_queryBuckets.begin(), d_queryBuckets.end(), queryBuckets);
 }
 //###########################################################################################################
+/*
+	Find the buckets matching to queries
+	Firstly, the multiprobe codes are generated and then they are matched to the buckets
+*/
 bool findTableQueryBins(
 	int* queryBuckets,
 	const float* queries,
@@ -208,6 +225,9 @@ else {
 }
 //###########################################################################################################
 //####################################################################################################
+/*
+	Extract K nearest neighbors, after the K smallest distances have been extracted
+*/
 void calculateIds(
 	ThrustIntD& d_knnIds,
 	ThrustFloatD& d_distances,
@@ -250,7 +270,7 @@ void calculateIds(
 	cudaDeviceSynchronize();
 	// Resize distances to K * Q, and assign the distance heap to it
 //	d_distances.resize(K * Q); d_distances.shrink_to_fit();
-	printf("Size of heap: %d\tSize of distances: %d\n", d_heap.size(), d_distances.size());
+//	printf("Size of heap: %d\tSize of distances: %d\n", d_heap.size(), d_distances.size());
 	d_distances.resize(K * Q);
 	//thrust::copy_n(d_heap.begin(), DEF_MIN(K * Q, totalIndices), d_distances.begin());
 	thrust::copy(d_heap.begin(), d_heap.end(), d_distances.begin());
@@ -258,6 +278,9 @@ void calculateIds(
 
 //#####################################################################################################
 //####################################################################################################
+/*
+	Calculate distances between queries and their candidates
+*/
 void calculateDistances(
 	ThrustFloatD& d_distances,
 	const ThrustFloatD& d_queries,
@@ -318,216 +341,6 @@ void calculateDistances(
 	if(debugStream) fprintf(debugStream, "KNN review: %u candidates, %f milliseconds, %f seconds, %.3fMF\n", total, totaltime_ms, totaltime_ms/1000.0, ((total / totaltime_ms) * (D * 3 * 1000.0))/ 1000000.0);
 
 }
-//####################################################################################################
-/*
-#define CAND_BLOCK 1
-__global__ void kernel_calculateDistances2(
-	float* distances,
-	const unsigned totalIndices,
-	const float* queries,
-	const int D,
-	const int Q,
-	const float* data,
-	const int N,
-	const unsigned* candidateIndices,
-	const unsigned* queryIndices
-)
-{
-	__shared__ float shared_dist[32][BLOCK_SIZE];
-	shared_dist[threadIdx.x][threadIdx.y] = 0.0;
-	
-	int bindex = blockIdx.y * blockDim.y + threadIdx.y;
-	for(int i = 0; i < CAND_BLOCK; i++) {
-	int index = bindex * CAND_BLOCK + i;
-	//for(int index = bindex * CAND_BLOCK; index < (bindex + 1) * CAND_BLOCK; index++ ) {
-	
-	if(index < totalIndices) {
-		
-		int queryIndex = queryIndices[index];
-		int dataIndex = candidateIndices[index];
-		
-		int elements = D / 32;
-		int start = threadIdx.x * elements;
-		if(threadIdx.x == 31) elements += (D % 32);
-		
-		float manhattan;
-		float distance = 0.0;
-		
-		for(int column = start; column < start + elements; column++) {
-			manhattan = queries[queryIndex * D + column] - data[dataIndex * D + column];
-			distance += manhattan * manhattan;
-			}
-		shared_dist[threadIdx.x][threadIdx.y] = distance;
-		}
-	
-	__syncthreads();
-	
-	if(threadIdx.x < 16) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 16][threadIdx.y];
-	__syncthreads();
-	if(threadIdx.x < 8) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 8][threadIdx.y];
-	__syncthreads();
-	if(threadIdx.x < 4) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 4][threadIdx.y];
-	__syncthreads();
-	if(threadIdx.x < 2) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 2][threadIdx.y];
-	__syncthreads();
-	if(!threadIdx.x) distances[index] = shared_dist[0][threadIdx.y] + shared_dist[1][threadIdx.y];
-	
-	}
-}
-
-void calculateDistances2(
-	ThrustFloatD& d_distances,
-	const ThrustFloatD& d_queries,
-	const int D,
-	const int Q,
-	const ThrustFloatD& d_dataset,
-	const int N,
-	const ThrustUnsignedD& d_candidateIndices,
-	const ThrustUnsignedD& d_queryIndices,
-	FILE* debugStream = 0
-	)
-{
-	const char *funcString = "[calculateDistances]";
-	
-	const unsigned total = d_candidateIndices.size();
-	d_distances.resize(total);
-	
-	unsigned candidatesPerBlock = DEF_MIN(total, 65535 * 16 * CAND_BLOCK);
-	unsigned totalBlocks = (total + candidatesPerBlock - 1) / candidatesPerBlock;
-	dim3 dimBlock, dimGrid;
-	unsigned start;
-	
-	if(debugStream) fprintf(debugStream, "%s\tBlocks examined(1..%d): ", funcString, totalBlocks);
-	for(int block = 0; block < totalBlocks; block++) {
-		if(debugStream) fprintf(debugStream, "%d ", block + 1);
-		
-		start = block * candidatesPerBlock;
-		if(block==totalBlocks - 1) candidatesPerBlock = total - start;
-		dimBlock = dim3(32, BLOCK_SIZE);
-		dimGrid = dim3(1, (candidatesPerBlock + BLOCK_SIZE - 1) / BLOCK_SIZE);
-		
-	kernel_calculateDistances2 <<< dimGrid, dimBlock >>> (
-		thrust::raw_pointer_cast(d_distances.data()) + start,
-		candidatesPerBlock,
-		thrust::raw_pointer_cast(d_queries.data()),
-		D,
-		Q,
-		thrust::raw_pointer_cast(d_dataset.data()),
-		N,
-		thrust::raw_pointer_cast(d_candidateIndices.data()) + start,
-		thrust::raw_pointer_cast(d_queryIndices.data()) + start
-		);
-//	cudaDeviceSynchronize();
-	}
-	if(debugStream) fprintf(debugStream, "\n");
-}
-*/
-
-//####################################################################################################
-//####################################################################################################
-//####################################################################################################
-
-/*
-__global__ void kernel_calculateDistances3(
-	float* distances,
-	const unsigned totalIndices,
-	const float* queries,
-	const int D,
-	const int Q,
-	const float* data,
-	const int N,
-	const unsigned* candidateIndices,
-	const unsigned* queryIndices
-)
-{
-	__shared__ float shared_dist[32][BLOCK_SIZE];
-	shared_dist[threadIdx.x][threadIdx.y] = 0.0;
-	
-	//int index = blockIdx.y * blockDim.y + threadIdx.y;
-	//int index = (blockIdx.y * blockDim.y + threadIdx.y) * gridDim.x * blockDim.x + blockIdx.x * blockDim.x + threadIdx.x;
-	int index = blockIdx.x * gridDim.y * blockDim.y + blockIdx.y * blockDim.y + threadIdx.y;
-	
-	if(index < totalIndices) {
-		
-		int queryIndex = queryIndices[index];
-		int dataIndex = candidateIndices[index];
-		
-		int elements = D / 32;
-		int start = threadIdx.x * elements;
-		if(threadIdx.x == 31) elements += (D % 32);
-		
-		float manhattan;
-		float distance = 0.0;
-		
-		for(int column = start; column < start + elements; column++) {
-			manhattan = queries[queryIndex * D + column] - data[dataIndex * D + column];
-			distance += manhattan * manhattan;
-			}
-		shared_dist[threadIdx.x][threadIdx.y] = distance;
-		}
-	
-	__syncthreads();
-	
-	if(threadIdx.x < 16) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 16][threadIdx.y];
-	__syncthreads();
-	if(threadIdx.x < 8) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 8][threadIdx.y];
-	__syncthreads();
-	if(threadIdx.x < 4) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 4][threadIdx.y];
-	__syncthreads();
-	if(threadIdx.x < 2) shared_dist[threadIdx.x][threadIdx.y] += shared_dist[threadIdx.x + 2][threadIdx.y];
-	__syncthreads();
-	if(!threadIdx.x) distances[index] = shared_dist[0][threadIdx.y] + shared_dist[1][threadIdx.y];
-}
-
-void calculateDistances3(
-	ThrustFloatD& d_distances,
-	const ThrustFloatD& d_queries,
-	const int D,
-	const int Q,
-	const ThrustFloatD& d_dataset,
-	const int N,
-	const ThrustUnsignedD& d_candidateIndices,
-	const ThrustUnsignedD& d_queryIndices,
-	FILE* debugStream = 0
-	)
-{
-	#define GRID_SIZE 50000
-	
-	printf("CALCULATE DISTANCES 3\n");
-	
-	const unsigned total = d_candidateIndices.size();
-	d_distances.resize(total);
-	
-	dim3 dimBlock, dimGrid;
-		
-		dimBlock = dim3(32, BLOCK_SIZE);
-		dimGrid = dim3((total + GRID_SIZE * BLOCK_SIZE - 1) / (GRID_SIZE * BLOCK_SIZE), GRID_SIZE);
-	
-	cudaEvent_t ev1, ev2;
-	cudaEventCreate(&ev1);
-	cudaEventCreate(&ev2);
-	cudaEventRecord(ev1);	
-	kernel_calculateDistances3 <<< dimGrid, dimBlock >>> (
-		thrust::raw_pointer_cast(d_distances.data()),
-		total,
-		thrust::raw_pointer_cast(d_queries.data()),
-		D,
-		Q,
-		thrust::raw_pointer_cast(d_dataset.data()),
-		N,
-		thrust::raw_pointer_cast(d_candidateIndices.data()),
-		thrust::raw_pointer_cast(d_queryIndices.data())
-		);
-	float time_ms;
-	cudaEventRecord(ev2);
-	cudaEventSynchronize(ev2);
-	cudaEventElapsedTime(&time_ms, ev1, ev2);
-	
-	printf("TIMEl: %f, %u candidates\n\n\n", time_ms, total);
-	if(debugStream) fprintf(debugStream, "\n");
-}
-*/
-//####################################################################################################
 //####################################################################################################
 
 }	// end of namespace

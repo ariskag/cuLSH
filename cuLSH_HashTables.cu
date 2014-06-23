@@ -16,6 +16,33 @@
 	along with cuLSH.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+/*
+cuLSH::HashTables
+	This is the structure used to perform indexing to a dataset.
+	The user must first reset the structure by calling <reset>.
+	Afterwards, indexing is performed by calling <index>.
+<reset>:
+	* bool reset(int N, int D, int L, int M, float W, FILE* debugStream = 0);
+	* bool reset(int N, int D, int L, int M, float W, float** A, float** b, FILE* debugStream = 0);
+	* bool reset(const char* filename, FILE* debugStream = 0);
+	N: # of vectors in the dataset
+	D: # of dimensions
+	L: # of hash tables
+	M: # of dimensions at projection space
+	W: bucket width
+	A: A[i] is the [D x M] projection matrix of table <i>
+	b: b[i] is the [1 x M] projection vector of table <i>
+	filename: file path to load a previously stored indexing structure
+	debugStream: stream used to output debugging info
+	TRUE is returned if structure was reseted successfully, FALSE otherwise
+<index>:
+	* bool index(const float* matrix, FILE* debugStream = 0);
+	matrix: [D x N] dataset
+	debugStream: stream used to output debugging info
+	TRUE is returned if indexing was performed successfully, FALSE otherwise
+
+*/
+
 #ifndef __cuLSH__HashTables__
 #define __cuLSH__HashTables__
 
@@ -23,33 +50,38 @@ namespace cuLSH {
 
 class HashTables {
 	private:
-		int N, D;
-		int L, M;
-		float W, **A, **b;
+		int N, D;	// # of data vectors, # of dimensions at original space
+		int L, M;	// # of tables, # of dimensions at projection space
+		float W, **A, **b;	// bucket width, projection matrices [A] and vectors [b]
 		// Buckets
-		unsigned *buckets;
-		unsigned **buckets_totalIndices;
-		unsigned **buckets_startingIndices;
-		unsigned **buckets_sizes;
-		float **buckets_codes;
+		unsigned *buckets;	// L numbers of buckets, one per table
+		unsigned **buckets_totalIndices;	// L vectors of [1 x N] total indices, one vector per table
+		unsigned **buckets_startingIndices;	// L vectors of [1 x B] bucket starting indices, one vector per table (B is the # of buckets for one table)
+		unsigned **buckets_sizes;	// L vectors of B sizes of buckets
+		float **buckets_codes;	// L matrices of size [B x M] containing the bucket codes of each table
 		// Memory management
-		bool allocateMemory_Projection(void);
-		bool allocateMemory_Indexing(void);
-		bool allocateMemory_Indexing(int table);
-		void freeMemory_Indexing(void);
-		void freeMemory_Projection(void);
+		bool allocateMemory_Projection(void);	// allocate memory for [A], [b]
+		bool allocateMemory_Indexing(void);	// allocate memory for buckets, and first level pointers of buckets_[totalIndices/startingIndices/sizes/codes]
+		bool allocateMemory_Indexing(int table);	// allocate memory for one tables second level pointers of buckets_[totalIndices/startingIndices/sizes/codes]
+		void freeMemory_Indexing(void);	// free memory of [A], [b]
+		void freeMemory_Projection(void);	// free memory of buckets, buckets_[totalIndices/startingIndices/sizes/codes]
+		
 		// Check if parameters are all positive
 		bool checkParameters() { return (N > 0 && D > 0 && L > 0 && M > 0 && W > 0.0); }
+		
 		// Generate random projection matrices [A] and vectors [b]
 		bool generateRandomProjection(void);
+		
 	public:
 		// Constructor / Destructor
 		HashTables(void);
 		~HashTables(void) { freeMemory_Indexing(); freeMemory_Projection(); }
+		
 		// Reset indexing structure
 		bool reset(int N, int D, int L, int M, float W, FILE* debugStream = 0);
 		bool reset(int N, int D, int L, int M, float W, float** A, float** b, FILE* debugStream = 0);
 		bool reset(const char* filename, FILE* debugStream = 0);
+		
 		// Index matrix
 		bool index(const float* matrix, FILE* debugStream = 0);
 		
@@ -70,7 +102,7 @@ class HashTables {
 		const unsigned* getBuckets_sizes(int table) { return (buckets_sizes ? buckets_sizes[table] : 0); }
 		const float* getBuckets_codes(int table) { return (buckets_codes ? buckets_codes[table] : 0); }
 		
-		// Save / Load
+		// Save / Load indexing structure
 		bool save(const char* filename, FILE* debugStream = 0);
 		bool load(const char* filename, FILE* debugStream = 0);
 	};
@@ -78,8 +110,8 @@ class HashTables {
 // CONSTRUCTOR
 HashTables::HashTables(void)
 {
-	N = D = L = M = 10;
-	W = 10.0;
+	N = D = L = M = 0;
+	W = 0.0;
 	A = b = 0;
 	buckets = 0;
 	buckets_totalIndices = buckets_startingIndices = buckets_sizes = 0;

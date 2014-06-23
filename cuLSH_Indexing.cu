@@ -21,6 +21,9 @@
 
 namespace cuLSH {
 //###########################################################################################################
+/*
+	Project data matrix X performing ((X * A) - b)/W, where subtraction of vector [b] is performed for each row of matrix X
+*/
 bool projectMatrix(
 	float* d_projectedMatrix,	// result matrix, must have size [N x M]
 	const float* d_matrix,	// input matrix, [D x N]
@@ -62,6 +65,9 @@ bool projectMatrix(
 	return true;
 }
 //###########################################################################################################
+/*
+	Perform radix sort for rows of a matrix, returning the permutation of its rows in the final sorted sequence
+*/
 void radixSortRows_1matrix(
 	ThrustUnsignedD& d_permutation,
 	const ThrustFloatD& d_matrix,
@@ -86,6 +92,9 @@ void radixSortRows_1matrix(
 //	cudaDeviceSynchronize();
 }
 //###########################################################################################################
+/*
+	Calculate buckets after projection is done
+*/
 struct findUniqueMatrixRows_isOne {
 	__host__ __device__ bool operator()(const unsigned char x) {
 		return (bool) x;
@@ -134,6 +143,9 @@ void calculateBuckets(
 
 }
 //###########################################################################################################
+/*
+	Copy desired rows of a source matrix to a destination matrix
+*/
 void copyMatrixRows(
 	float* d_destination,
 	const unsigned destinationRows,
@@ -162,9 +174,10 @@ void copyMatrixRows(
 ////////////////////////////////////////////////////////
 
 namespace cuLSH {
-
-// index only one table
-// only reason for double pointers is because we are allocating memory for them in this function
+/*
+	Perform indexing for a dataset for a table
+	The only reason double pointers for bucket objects are used is because we are allocating memory for them inside this function
+*/
 bool indexTableData(
 	unsigned* buckets,
 	unsigned** buckets_totalIndices,
