@@ -1,0 +1,144 @@
+	***** cuLSH *****
+cuLSH is a library used to perform LSH indexing and searching for a given dataset. The matrices (dataset [D x N], queries [D x Q], N = # of data vectors, Q = # of query vectors) must be stored columnwise in one-dimensional arrays of floats (float dataset[D * N], queries[D * Q]).
+The library belongs to the cuLSH namespace, and contains 2 important classes:
+	* HashTables: It is used to create the LSH hash tables in order to perform nearest neighbor searching.
+	* SearchTables: It is used to perform LSH nearest neighbor searching after the tables have been created.
+Both classes need to be initialized by the user by calling the function <reset> of each class. The <reset> prototypes are:
+
+-> cuLSH::HashTables::reset
+	* bool reset(int N, int D, int L, int M, float W, FILE* debugStream = 0);
+	* bool reset(int N, int D, int L, int M, float W, float** A, float** b, FILE* debugStream = 0);
+	* bool reset(const char* filename, FILE* debugStream = 0);
+		N: # of vectors in the dataset
+		D: # of dimensions
+		L: # of hash tables
+		M: # of dimensions at projection space
+		W: bucket width
+		A: A[i] is the [D x M] projection matrix of table <i>
+		b: b[i] is the [1 x M] projection vector of table <i>
+		filename: file path to load a previously stored indexing structure
+		debugStream: stream used to output debugging info
+		TRUE is returned if structure was reseted successfully, FALSE otherwise
+-> cuLSH::SearchTables::reset
+	* void reset(HashTables* hashtables, int K, int T = 1);
+		hashtables: pointer to indexing structure containing projection parameters and buckets
+		K: # of nearest neighbors to be returned at searching
+		T: # of total probing bins to be examined for each query (T = 1 for classic LSH)
+
+After the HashTables class has been reset, the user can create the hash tables by calling function <index> of HashTables, and searching can be performed by calling function  <search> of SearchTables:
+-> cuLSH::HashTables::index
+	* bool index(const float* matrix, FILE* debugStream = 0);
+		matrix: [D x N] dataset
+		debugStream: stream used to output debugging info
+		TRUE is returned if indexing was performed successfully, FALSE otherwise
+-> cuLSH::SearchTables::search
+	* bool search(const float* queries, const int Q, const float* dataset, FILE* debugStream = 0);
+		queries: [D x Q] matrix of queries
+		Q: # of query vectors
+		dataset: [D x N] dataset, must be the same that was used with indexing structure hashtables
+		debugStream: stream used to output debugging info
+
+If one wants to create his own C++ program using the cuLSH library, all he has to do is the following preprocessor include command:
+	#include "cuLSH.h"
+
+
+	***** Matlab interfaces *****
+Two interfaces for use with Matlab were created, mex_cuLSH_indexing.cu and mex_cuLSH_querying.cu.
+The first one creates (or loads from the hard disk) an indexing structure, creates the hash tables for a given dataset, and (optionally) saves them to the hard disk. The second one loads the indexing structure from the hard disk, and performs searching fir a given query set.
+
+-> mex_cuLSH_indexing(matrix, L, M, W, [filename_save ])
+-> mex_cuLSH_indexing(matrix, L, M, W, A, b, [filename_save ])
+-> mex_cuLSH_indexing(matrix, filename_load , [filename_save ])
+	matrix: [D x N] SINGLE CLASS (not double) matrix containing the dataset
+	L: # of hash tables
+	M: # of dimensions at projection space
+	W: bucket width
+	A: [1 x L] cell array, each cell containing [D x M] projection matrix [A]
+	b: [1 x L] cell array, each cell containing [1 x M] projection vector [b]
+	filename_save: the path to store the hash tables to the hard disk
+	filename_load: the path to load the hash tables from the hard disk
+The user can request to get 2 to 5 arguments returned, [A b B bucketContents, bucketCodes]
+	A, b: the projection matrices and vectors [A], [b] used to create the hash tables
+	B: [1 x L] vector, # of buckets for each table
+	bucketContents: [1 x L] cell array, bucketContents(i) containes B(i) cells, each one containing the points belonging to each bucket of table <i>
+	bucketCodes: [1 x L] cell array, bucketCodes[i] is [B(i) x M], containing the bucket codes of table <i>
+
+-> mex_cuLSH_querying(queries, data, K, T, filename_load)
+	queries: [D x Q] query data
+	data: [D x N] dataset
+	K: # of nearest neighbors to retrieve
+	T: # of total probing buckets for each query for each table (T = 1 for classic LSH)
+	filename_load: path to load the hash tables from the hard disk
+
+If one wants to create his own mex files using the cuLSH library, he should type the following preprocessor define command before including "cuLSH.h":
+	#define CULSH_MATLAB
+This causes the output buffer to be flushed after each printf command (otherwise all outputs of the program functions might be printed to the Matlab console all at once after the program terminates). Also, this causes all the fprintf commands to output everything to the console. This is done because even if the user defines the debugging stream to be stdout, this shouldn't redirect all the debugging outputs to the Matlab console. The user can freely remove the '#define fprintf(...) printf(...)' command from the 'cuLSH.h' file and use a file stream for debugging purposes, when working with Matlab.
+The user is encouraged to take a look at 'cuLSH.h' and see for himself what exactly happens when defining CULSH_MATLAB for using cuLSH with Matlab.
+
+
+	***** Compiling *****
+In the Makefile, the following variables must be set before executing make:
+	P: name of the source code file to compile (without the extension .cu)
+	MATLAB: path to the root Matlab directory
+	CUDA: path to the CUDA library directory (usually /usr/local/cuda/lib)
+In order to compile the given mex files, execute:
+	make P=mex_cuLSH_indexing matlab
+	make P=mex_cuLSH_querying matlab
+In order to compile your own Matlab file named <mat.cu> using the cuLSH library:
+	make P=mat matlab
+In order to compile your own C++ file (containing main function) named <main.cu> using the cuLSH library:
+	make P=main
+
+The user can create his own Makefile according to his own program, but he should take care that:
+	cuLSH.h is included in the source code
+	The CUDA libraries are included when compiling
+	The MEX libraries are included when compiling a mex file
+
+	***** C++ example *****
+	/*
+	Suppose we have already initialized the following variables:
+	int D; // # of dimensions
+	int N, Q; // # of data and query points
+	float* matrix; // dataset ([D x N] stored columnwise)
+	float* queries; // queries ([D x Q] stored columnwise)
+	int L; // # of tables
+	int M; // # of projection dimensions
+	float W; // bucket width
+	int K; // # of neighbors
+	int T; // # of probing bins
+	char* filename; // name of file to store or load hash tables
+	*/
+	//...
+	// CREATE LSH HASH TABLES
+	cuLSH :: HashTables hashtables;
+	// Reset tables with randomly chosen projection matrices A, b
+	if(! hashtables.reset(N, D, L, M, W, stdout)) {
+		printf("Failed␣to␣reset ...\n");
+		// act accordingly ...
+		}
+	// Index dataset
+	if(! hashtables.index(matrix , N, D, L, M, stdout) {
+		printf("Failed␣to␣index ...\n");
+		// act accordingly
+		}
+	// Save tables
+	if(! hashtables.save(filename , stdout)) {
+		printf("Failed␣to␣save ...\n");
+		// act accordingly
+		}
+	// SEARCH FOR NEIGHBORS
+	cuLSH :: SearchTables searchtables;
+	// Reset search tables
+	searchtables.reset (& hashtables , K, T);
+	// Perform searching
+	if(! searchtables.search(queries , Q, matrix , stdout)) {
+		printf("Failed␣to␣search ...\n");
+		// act accordingly
+		}
+	const int* ids = searchtables.getKnnIds ();
+	const float* distances = searchtables.getKnnDistances ();
+	//...
+	// Get complexity
+	float complexity = searchtables.getSelectivity();
+	// Get percentage of non-unique candidates for the queries out of the unique candidates
+	float non_unique_percentage = searchtables.getNonUniquePercentage();
