@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <cstring>
+#include <cfloat>
 #include <iterator>
 #include <stdint.h>
 
@@ -44,6 +45,7 @@
 #include <thrust/sort.h>
 #include <thrust/unique.h>
 #include <thrust/adjacent_difference.h>
+#include <thrust/extrema.h>
 #include <thrust/iterator/permutation_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>

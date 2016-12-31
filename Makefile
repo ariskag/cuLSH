@@ -3,12 +3,12 @@
 # MATLAB should point to matlab's root directory
 # CUDA should point to cuda's library directory
 ########################################################
-P=a
+P=cuLSH_main
 MATLAB=/usr/local/MATLAB/R2012a
 CUDA=/usr/local/cuda/lib64
 MEX_INCLUDE=$(MATLAB)/extern/include
 ########################################################
-NVCC=nvcc -O4
+NVCC=nvcc -O4 -D_FORCE_INLINES
 MEX=mex -O
 ########################################################
 CUDA_LIBRARIES=-lcuda -lcudart -lcublas -lcurand
